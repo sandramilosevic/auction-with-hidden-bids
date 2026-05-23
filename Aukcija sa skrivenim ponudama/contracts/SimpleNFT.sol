@@ -12,7 +12,7 @@ contract SimpleNFT is ERC721URIStorage {
 
     function mint(address owner, string memory tokenURI) public returns (uint256) {
         uint256 id = tokenCounter;
-        tokenCounter ++;
+        tokenCounter++;
         _mint(owner, id); // kreiranje tokena
         _setTokenURI(id, tokenURI); // postavljanje URI-a tokena
         return id;
