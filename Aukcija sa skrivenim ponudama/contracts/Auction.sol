@@ -4,13 +4,6 @@ pragma solidity ^0.8.0;
 import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 
 contract BlindAuction {
-
-    event BidPlaced(address indexed bidder, uint deposit); // Emituje se pri slanju ponude
-    event BidRevealed(address indexed bidder, uint value, bool isHighest); // Emituje se pri otkrivanju ponude
-    event AuctionEnded(address indexed winner, uint amount, uint256 nftTokenId); // Emituje se po zavrsetku aukcije 
-    event ReservePriceNotMet(uint highestBid, uint reservePrice); // Emituje se u slucaju kada rezervna cena nije dostignuta
-    event FundsWithdrawn(address indexed bidder, uint amount); // Emituje se kada se povlaci ETH iz ugovora
-
     // struktura za cuvanje ponude
     // keccak256 hash vrednosti i tajnog kljuca
     // deposit je u ETH
@@ -35,7 +28,6 @@ contract BlindAuction {
 
     address public highestBidder; // trenutna najveca ponuda
     uint public highestBid;
-
 
     // Uslovi
     modifier onlyBefore(uint time) {
@@ -83,38 +75,31 @@ contract BlindAuction {
             deposit: msg.value,
             blindedBid: bidHash
         });
-        emit BidPlaced(msg.sender, msg.value); // obavestimo sve da je ponuda primljena
     }
 
     // otkrivanje ponude nakon isteka biding faze
-    function reveal(uint amount, bytes32 secret) onlyAfter(biddingEnd) onlyBefore(revealEnd) public {
+    function reveal(bytes32 secret) onlyAfter(biddingEnd) onlyBefore(revealEnd) public {
         Bid storage userBid = bids[msg.sender];
 
         require(userBid.deposit > 0, "Niste postavili ponudu!");
-        require(userBid.blindedBid == keccak256(abi.encodePacked(amount, secret)), "Ponuda ne odgovara hashu");
-        require(userBid.deposit >= amount, "Depozit nije dovoljan za navedenu ponudu!");
+        require(userBid.blindedBid == keccak256(abi.encode(userBid.deposit, secret)), "Ponuda ne odgovara hashu!");
+
+        uint amount = userBid.deposit;
+        userBid.deposit = 0;
 
         if (amount > highestBid) {
             if (highestBidder != address(0)) {
-                pendingReturns[highestBidder] += bids[highestBidder].deposit; // stari pobednik dobija povrat
-                bids[highestBidder].deposit = 0;
+                pendingReturns[highestBidder] += highestBid;
             }
-            uint excess = userBid.deposit - amount;
-            if (excess > 0) {
-                pendingReturns[msg.sender] += excess;
-            }
-            highestBidder = msg.sender;
-            highestBid = amount;
-        }
-        else {
-            // ako nije pobedio, dobija povrat depozita
-            pendingReturns[msg.sender] += userBid.deposit;
-        }
-        userBid.deposit = 0; // resetujemo depozit za korisnika
-        emit BidRevealed(msg.sender, amount, highestBidder == msg.sender);
-    }
 
-    // Gubitnici sami povlače ETH — bezbedniji od automatskog slanja
+            highestBidder = msg.sender; // novi pobednik
+            highestBid = amount; // nova najveca ponuda
+        } 
+            else {
+                pendingReturns[msg.sender] += amount; // ako nije pobedio, dobija povrat depozita
+        }
+    }
+    // Gubitnici sami povlače ETH, bezbedniji od automatskog slanja
     function withdraw() public {
         require(pendingReturns[msg.sender] > 0, "Nema ponuda");
 
@@ -123,34 +108,27 @@ contract BlindAuction {
 
         (bool success, ) = payable(msg.sender).call{value: amount}("");
         require(success, "Slanje ETH nije uspelo!");
-
-        emit FundsWithdrawn(msg.sender, amount);
     }
-    
-    function endAuction() public onlyAfter(revealEnd) {
-        require(!ended, "Aukcija je zavrsena");
-
-        ended = true;
-
-        if (highestBidder == address(0)) {
-            emit AuctionEnded(address(0), 0, nftTokenId);
-            return;
-        }
-
-        if (highestBid >= reservePrice) {
-            require(
-                nft.getApproved(nftTokenId) == address(this) ||
-                nft.isApprovedForAll(beneficiary, address(this)),
-                "Ugovor nema dozvolu za transfer NFT-a!"
-            );
-            (bool success, ) = payable(beneficiary).call{value: highestBid}("");
-            require(success, "Neuspesno.");
-            nft.transferFrom(beneficiary, highestBidder, nftTokenId);
-        }
-        else {
-            pendingReturns[highestBidder] += highestBid;
-            emit ReservePriceNotMet(highestBid, reservePrice);
-        }
-        emit AuctionEnded(highestBidder, highestBid, nftTokenId);  
+        
+    function endAuction() public onlyAfter(revealEnd) onlyBeneficiary {
+            require(!ended, "Aukcija je zavrsena");
+            ended = true;
+            if (highestBidder == address(0)) {
+                return;
+            }
+            
+            if (highestBid >= reservePrice) {
+                require(
+                    nft.getApproved(nftTokenId) == address(this) ||
+                    nft.isApprovedForAll(beneficiary, address(this)),
+                    "Ugovor nema dozvolu za transfer NFT-a!"
+                );
+                (bool success, ) = payable(beneficiary).call{value: highestBid}(""); // beneficiary dobija ETH
+                require(success, "Neuspesno.");
+                nft.transferFrom(beneficiary, highestBidder, nftTokenId); // pobednik dobija NFT
+            }
+            else {
+                pendingReturns[highestBidder] += highestBid; // pobedniku se vraca depozit jer rezervna cena nije dostignuta
+            }
     }
 }
