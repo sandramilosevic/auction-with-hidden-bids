@@ -70,13 +70,42 @@ contract BlindAuction {
         require(msg.value > 0, "Depozit mora biti veci od 0!");
         require(bidHash != bytes32(0), "Hash ne sme biti prazan");
         require(bids[msg.sender].deposit == 0, "Vec ste postavili ponudu!"); // provera da li je korisnik vec postavio ponudu
-    
+        require(msg.sender != beneficiary, "Vlasnik ne moze licitirati!"); // vlasnik ne moze postaviti ponudu
+
         // cuvanje ponude u mapping
         bids[msg.sender] = Bid({
         deposit: msg.value,
         blindedBid: bidHash
         });
         emit BidPlaced(msg.sender, msg.value); // obavestimo sve da je ponuda primljena
-    
     }
+
+    // otkrivanje ponude nakon isteka biding faze
+    function reveal(uint amount, bytes32 secret) onlyAfter(biddingEnd) onlyBefore(revealEnd) public {
+        require(bids[msg.sender].deposit > 0, "Niste postavili ponudu!");
+        require(bids[msg.sender].blindedBid == keccak256(abi.encodePacked(amount, secret)), "Ponuda ne odgovara hashu");
+
+        if (amount > highestBid) {
+            pendingReturns[highestBidder] += highestBid; // stari pobednik dobija povrat
+            highestBidder = msg.sender;
+            highestBid = amount;
+        }
+        else {
+            pendingReturns[msg.sender] += bids[msg.sender].deposit;
+        }
+        bids[msg.sender].deposit = 0; // resetujemo depozit za korisnika
+        emit BidRevealed(msg.sender, amount, highestBidder == msg.sender);
     }
+
+    function withdrawn () public onlyAfter(revealEnd) { 
+        require(pendingReturns[msg.sender] > 0, "Nema ponuda");
+
+        uint amount = pendingReturns[msg.sender];
+        pendingReturns[msg.sender] = 0;
+
+        (bool success, ) = payable(msg.sender).call{value: amount}("");
+        require(success, "Slanje ETH nije uspelo!");
+
+        emit FundsWithdrawn(msg.sender, amount);
+    }
+}
