@@ -65,4 +65,18 @@ contract BlindAuction {
         nft = IERC721(_nftContract); 
         nftTokenId = _nftTokenId;
     }
-}
+
+    function bid(bytes32 bidHash) onlyBefore(biddingEnd) public payable {
+        require(msg.value > 0, "Depozit mora biti veci od 0!");
+        require(bidHash != bytes32(0), "Hash ne sme biti prazan");
+        require(bids[msg.sender].deposit == 0, "Vec ste postavili ponudu!"); // provera da li je korisnik vec postavio ponudu
+    
+        // cuvanje ponude u mapping
+        bids[msg.sender] = Bid({
+        deposit: msg.value,
+        blindedBid: bidHash
+        });
+        emit BidPlaced(msg.sender, msg.value); // obavestimo sve da je ponuda primljena
+    
+    }
+    }
