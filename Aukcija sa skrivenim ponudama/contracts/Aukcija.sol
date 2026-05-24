@@ -62,6 +62,10 @@ contract Aukcija {
         nft = IERC721(_nftContract); 
         nftTokenId = _nftTokenId;
     }
+    
+    function generateHash(uint amount, bytes32 secret) public pure returns (bytes32) {
+        return keccak256(abi.encode(amount, secret));
+    }
 
     // hash(vrednost + tajniKljuc) — prava cifra ostaje skrivena
     function bid(bytes32 bidHash) onlyBefore(biddingEnd) public payable {
