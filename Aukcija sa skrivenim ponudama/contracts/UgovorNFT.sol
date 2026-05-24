@@ -3,7 +3,7 @@ pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/token/ERC721/extensions/ERC721URIStorage.sol"; // biblioteka za generisanje NFT tokena
 
-contract SimpleNFT is ERC721URIStorage {
+contract UgovorNFT is ERC721URIStorage {
     uint256 public tokenCounter; // brojac za generisane tokene - id
 
     constructor() ERC721('AuctionNFT', 'ANFT') {
