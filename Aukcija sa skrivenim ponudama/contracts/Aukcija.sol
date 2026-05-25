@@ -23,7 +23,7 @@ contract Aukcija {
     IERC721 public nft; // referenca na NFT ugovor
     uint256 public nftTokenId; // ID konkretnog NFT-a
 
-    mapping(address => Bid) public bids; // cuva ponudu za svaku adresu
+    mapping(address => Bid[]) public bids; // cuva ponudu za svaku adresu
     mapping(address => uint) public pendingReturns; // koliko ETH povlaci nakon aukcije (pull pattern)
 
     address public highestBidder; // trenutna najveca ponuda
@@ -31,17 +31,12 @@ contract Aukcija {
 
     // Uslovi
     modifier onlyBefore(uint time) {
-        require(block.timestamp < time, "Kasno je!"); // trenutno vreme posle zadatog timestampa
+        require(block.timestamp < time, "Kasno je!"); // trenutno vreme pre zadatog timestampa
         _;
     }
 
     modifier onlyAfter(uint time) {
-        require(block.timestamp > time, "Prerano je!"); // trenutno vreme pre zadatog timestampa
-        _;
-    }
-
-    modifier onlyBeneficiary() {
-        require(msg.sender == beneficiary, "Nisi vlasnik aukcije!");
+        require(block.timestamp > time, "Prerano je!"); // trenutno vreme posle zadatog timestampa
         _;
     }
 
@@ -61,48 +56,67 @@ contract Aukcija {
 
         nft = IERC721(_nftContract); 
         nftTokenId = _nftTokenId;
+
+        require(nft.ownerOf(_nftTokenId) == msg.sender, "Niste vlasnik NFT-a");
+        // Preduslov: vlasnik mora pozvati approve(address(this), _nftTokenId) na NFT ugovoru pre deployovanja
+        nft.transferFrom(msg.sender, address(this), _nftTokenId);
     }
     
-    function generateHash(uint amount, bytes32 secret) public pure returns (bytes32) {
-        return keccak256(abi.encode(amount, secret));
-    }
-
     // hash(vrednost + tajniKljuc) — prava cifra ostaje skrivena
     function bid(bytes32 bidHash) onlyBefore(biddingEnd) public payable {
         require(msg.value > 0, "Depozit mora biti veci od 0!");
         require(bidHash != bytes32(0), "Hash ne sme biti prazan");
-        require(bids[msg.sender].deposit == 0, "Vec ste postavili ponudu!"); // provera da li je korisnik vec postavio ponudu
         require(msg.sender != beneficiary, "Vlasnik ne moze licitirati!"); // vlasnik ne moze postaviti ponudu
 
         // cuvanje ponude u mapping
-        bids[msg.sender] = Bid({
+        bids[msg.sender].push(Bid({
             deposit: msg.value,
             blindedBid: bidHash
-        });
+        })); 
     }
 
     // otkrivanje ponude nakon isteka biding faze
-    function reveal(bytes32 secret) onlyAfter(biddingEnd) onlyBefore(revealEnd) public {
-        Bid storage userBid = bids[msg.sender];
+    function reveal(
+        uint[] calldata values,
+        bytes32[] calldata secrets
+    ) onlyAfter(biddingEnd) onlyBefore(revealEnd) public {
+        uint length = bids[msg.sender].length;
+        require(values.length == length);
+        require(secrets.length == length);
 
-        require(userBid.deposit > 0, "Niste postavili ponudu!");
-        require(userBid.blindedBid == keccak256(abi.encode(userBid.deposit, secret)), "Ponuda ne odgovara hashu!");
+        uint refund;
+        for (uint i = 0; i < length; i++) {
+            Bid storage userBid = bids[msg.sender][i];
+            (uint value, bytes32 secret) = (values[i], secrets[i]);
 
-        uint amount = userBid.deposit;
-        userBid.deposit = 0;
-
-        if (amount > highestBid) {
-            if (highestBidder != address(0)) {
-                pendingReturns[highestBidder] += highestBid;
+            if (userBid.blindedBid != keccak256(abi.encode(value, secret, msg.sender))) {
+                continue;
             }
 
-            highestBidder = msg.sender; // novi pobednik
-            highestBid = amount; // nova najveca ponuda
-        } 
-            else {
-                pendingReturns[msg.sender] += amount; // ako nije pobedio, dobija povrat depozita
+            refund += userBid.deposit;
+            if (userBid.deposit >= value) {
+                if (_updateHighestBid(msg.sender, value))
+                    refund -= value;
+            }
+            userBid.blindedBid = bytes32(0); // stanje se menja pre slanja ETH-a (CEI pattern)
         }
+
+        (bool success, ) = payable(msg.sender).call{value: refund}("");
+        require(success, "Slanje ETH nije uspelo!");
     }
+
+    function _updateHighestBid (address bidder, uint value) internal returns (bool) {
+        if (value <= highestBid) {
+            return false;
+        }
+        if (highestBidder != address(0)) {
+            pendingReturns[highestBidder] += highestBid; // novi pobednik
+        }
+        highestBid = value; // nova najveca ponuda
+        highestBidder = bidder;
+        return true;
+    }
+
     // Gubitnici sami povlače ETH, bezbedniji od automatskog slanja
     function withdraw() public {
         require(pendingReturns[msg.sender] > 0, "Nema ponuda");
@@ -114,25 +128,22 @@ contract Aukcija {
         require(success, "Slanje ETH nije uspelo!");
     }
         
-    function endAuction() public onlyAfter(revealEnd) onlyBeneficiary {
-            require(!ended, "Aukcija je zavrsena");
-            ended = true;
-            if (highestBidder == address(0)) {
-                return;
-            }
-            
-            if (highestBid >= reservePrice) {
-                require(
-                    nft.getApproved(nftTokenId) == address(this) ||
-                    nft.isApprovedForAll(beneficiary, address(this)),
-                    "Ugovor nema dozvolu za transfer NFT-a!"
-                );
-                (bool success, ) = payable(beneficiary).call{value: highestBid}(""); // beneficiary dobija ETH
-                require(success, "Neuspesno.");
-                nft.transferFrom(beneficiary, highestBidder, nftTokenId); // pobednik dobija NFT
-            }
-            else {
-                pendingReturns[highestBidder] += highestBid; // pobedniku se vraca depozit jer rezervna cena nije dostignuta
-            }
+    function endAuction() public onlyAfter(revealEnd) {
+        require(!ended, "Aukcija je zavrsena");
+        ended = true;
+        if (highestBidder == address(0)) {
+            nft.transferFrom(address(this), beneficiary, nftTokenId); // niko nije licitirao, NFT se vraca vlasniku
+            return;
+        }
+        
+        if (highestBid >= reservePrice) {
+            (bool success, ) = payable(beneficiary).call{value: highestBid}(""); // beneficiary dobija ETH
+            require(success, "Neuspesno.");
+            nft.transferFrom(address(this), highestBidder, nftTokenId); // pobednik dobija NFT
+        }
+        else {
+            pendingReturns[highestBidder] += highestBid; // pobedniku se vraca depozit jer rezervna cena nije dostignuta
+            nft.transferFrom(address(this), beneficiary, nftTokenId); // rezervna cena nije dostignuta, NFT se vraca vlasniku
+        }
     }
 }
