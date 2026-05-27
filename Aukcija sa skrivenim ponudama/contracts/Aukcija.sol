@@ -41,26 +41,28 @@ contract Aukcija {
     }
 
     constructor(
-        uint biddingDuration, // trajanje u sekundama
-        uint revealDuration,
-        uint _reservePrice, // minimalna prihvatljiva cena
-        address _nftContract, // adresa NFT ugovora
-        uint256 _nftTokenId
+    uint biddingDuration,
+    uint revealDuration,
+    uint _reservePrice,
+    address _nftContract,
+    uint256 _nftTokenId
     ) {
-        beneficiary = payable(msg.sender); // vlasnik NFT-a, koji je objavio aukciju
+    beneficiary = payable(msg.sender);
 
-        biddingEnd = block.timestamp + biddingDuration;
-        revealEnd = biddingEnd + revealDuration; 
+    biddingEnd = block.timestamp + biddingDuration;
+    revealEnd = biddingEnd + revealDuration; 
 
-        reservePrice = _reservePrice; 
+    reservePrice = _reservePrice; 
 
-        nft = IERC721(_nftContract); 
-        nftTokenId = _nftTokenId;
+    nft = IERC721(_nftContract); 
+    nftTokenId = _nftTokenId;
+}
 
-        require(nft.ownerOf(_nftTokenId) == msg.sender, "Niste vlasnik NFT-a");
-        // Preduslov: vlasnik mora pozvati approve(address(this), _nftTokenId) na NFT ugovoru pre deployovanja
-        nft.transferFrom(msg.sender, address(this), _nftTokenId);
-    }
+    function depositNFT() public {
+        require(msg.sender == beneficiary, "Samo vlasnik!");
+        require(nft.ownerOf(nftTokenId) == msg.sender, "Niste vlasnik NFT-a");
+        nft.transferFrom(msg.sender, address(this), nftTokenId);
+}
     
     // hash(vrednost + tajniKljuc) — prava cifra ostaje skrivena
     function bid(bytes32 bidHash) onlyBefore(biddingEnd) public payable {
