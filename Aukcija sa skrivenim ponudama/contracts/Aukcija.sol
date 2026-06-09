@@ -78,10 +78,7 @@ contract Aukcija {
     }
 
     // otkrivanje ponude nakon isteka biding faze
-    function reveal(
-        uint[] calldata values,
-        bytes32[] calldata secrets
-    ) onlyAfter(biddingEnd) onlyBefore(revealEnd) public {
+    function reveal(uint[] calldata values,bytes32[] calldata secrets) onlyAfter(biddingEnd) onlyBefore(revealEnd) public {
         uint length = bids[msg.sender].length;
         require(values.length == length);
         require(secrets.length == length);
