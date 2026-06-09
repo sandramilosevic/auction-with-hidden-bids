@@ -79,23 +79,25 @@ contract Aukcija {
 
     // otkrivanje ponude nakon isteka biding faze
     function reveal(uint[] calldata values,bytes32[] calldata secrets) onlyAfter(biddingEnd) onlyBefore(revealEnd) public {
-        uint length = bids[msg.sender].length;
+        uint length = bids[msg.sender].length; // mora se otkriti tacno onoliko ponuda, koliko adresa ima
         require(values.length == length);
         require(secrets.length == length);
 
-        uint refund;
+        uint refund; // brojac koliko ETH treba vratiti korisniku
         for (uint i = 0; i < length; i++) {
-            Bid storage userBid = bids[msg.sender][i];
-            (uint value, bytes32 secret) = (values[i], secrets[i]);
+            // referenca — menja original
+            Bid storage userBid = bids[msg.sender][i]; // pristupa ponudama korisnika
+            (uint value, bytes32 secret) = (values[i], secrets[i]); 
 
-            if (userBid.blindedBid != keccak256(abi.encode(value, secret, msg.sender))) {
+            if (userBid.blindedBid != keccak256(abi.encode(value, secret, msg.sender))) { // proverava da li se poklapa hes
                 continue;
             }
 
-            refund += userBid.deposit;
+            refund += userBid.deposit; // vraca depozit
+
             if (userBid.deposit >= value) {
                 if (_updateHighestBid(msg.sender, value))
-                    refund -= value;
+                    refund -= value; // vraca se razlika depozita i uloga
             }
             userBid.blindedBid = bytes32(0); // stanje se menja pre slanja ETH-a (CEI pattern)
         }
@@ -105,8 +107,8 @@ contract Aukcija {
     }
 
     function _updateHighestBid (address bidder, uint value) internal returns (bool) {
-        if (value <= highestBid) {
-            return false;
+        if (value <= highestBid) { 
+            return false; // ako ponuda nije veca od najvece ponude, vraca false
         }
         if (highestBidder != address(0)) {
             pendingReturns[highestBidder] += highestBid; // novi pobednik
