@@ -18,7 +18,7 @@ contract Aukcija {
     uint public revealEnd; 
     bool public ended; // zastita od dvostrukog zavrsavanja aukcije
 
-    uint public reservePrice; // rezervna cena
+    uint public reservePrice; // rezervna cena (npr. 500000000000000000)
 
     IERC721 public nft; // referenca na NFT ugovor
     uint256 public nftTokenId; // ID konkretnog NFT-a
