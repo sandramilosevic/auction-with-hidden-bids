@@ -6,8 +6,8 @@ A Solidity smart contract project that implements a sealed-bid auction for an NF
 
 This project contains two smart contracts:
 
-- `Aukcija` — a blind auction contract for selling an NFT.
-- `UgovorNFT` — an ERC721 NFT contract used for minting the auctioned token.
+- `Aukcija` - a blind auction contract for selling an NFT.
+- `UgovorNFT` - an ERC721 NFT contract used for minting the auctioned token.
 
 The auction follows a two-phase flow:
 1. Bidding phase, where bidders submit blinded bids.
